@@ -111,9 +111,13 @@ async function openRefereeAgent(
 			thinkingLevel: options.thinking,
 			modelRegistry: options.modelRegistry,
 			authStorage: options.modelRegistry.authStorage,
+			// The ruling must come from the chosen model: a fallback or context promotion could switch
+			// to another one, even the agent's own, while the ruling still names the chosen model.
 			settings: createSubagentSettings(options.settings, {
 				"async.enabled": false,
 				"bash.autoBackground.enabled": false,
+				"retry.modelFallback": false,
+				"contextPromotion.enabled": false,
 			}),
 			toolNames: [...REFEREE_TOOL_NAMES, ...setup.customTools.map(tool => tool.name)],
 			restrictToolNames: true,

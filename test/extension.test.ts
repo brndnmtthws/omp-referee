@@ -25,7 +25,6 @@ import type { RefereeRun } from "../src/types";
 const API = "test-referee-extension";
 const OBJECTIVE = "Make a.txt say beta.";
 const SUMMARY = "Read a.txt and compared it with the objective.";
-const REFUSED = "Nothing changed since review";
 
 type Script = ((context: Context) => AssistantMessage)[];
 
@@ -84,9 +83,16 @@ function messagesText(context: Context | undefined): string {
 	return JSON.stringify(context?.messages ?? []);
 }
 
+/** The messages a request added since the previous request, as JSON. */
+function addedText(context: Context | undefined, previous: Context | undefined): string {
+	return JSON.stringify(context?.messages.slice(previous?.messages.length ?? 0) ?? []);
+}
+
 interface Outcome {
 	main: Context[];
 	referee: Context[];
+	/** The model each referee request went to. */
+	refereeModels: string[];
 	run: RefereeRun | undefined;
 	snapshots: number;
 }
@@ -107,12 +113,13 @@ describe("referee extension", () => {
 		const agentDir = path.join(root, "agent");
 		setAgentDir(agentDir);
 		await Bun.write(path.join(agentDir, "referee.json"), JSON.stringify({ model: "fake/referee" }));
-		// The extension reads the host's global settings, as it does inside omp.
+		// The extension reads the host's global settings, as it does inside omp. The fallback chain
+		// points at the agent's own model: a referee that took it would grade its own work.
 		settings = await Settings.init({
 			agentDir,
 			cwd: project,
 			inMemory: true,
-			overrides: { "compaction.enabled": false },
+			overrides: { "compaction.enabled": false, "retry.fallbackChains": { default: ["fake/main"] } },
 		});
 		authStorage = await AuthStorage.create(path.join(root, "auth.db"));
 		authStorage.keys.setRuntime("fake", "test-key");
@@ -148,6 +155,7 @@ describe("referee extension", () => {
 	async function play(main: Script, judge: Script): Promise<Outcome> {
 		const mainContexts: Context[] = [];
 		const refereeContexts: Context[] = [];
+		const refereeModels: string[] = [];
 		// The last settle: an `agent_end` that schedules no further turn once the main script is spent.
 		const settled = Promise.withResolvers<void>();
 		const probe = (pi: ExtensionAPI) => {
@@ -155,13 +163,16 @@ describe("referee extension", () => {
 				if (main.length === 0 && event.willContinue !== true) settled.resolve();
 			});
 		};
-		registerCustomApi(API, (_model, context) => {
+		registerCustomApi(API, (model, context) => {
 			const stream = new AssistantMessageEventStream();
 			const names = toolNames(context);
 			// Auxiliary requests (title generation) carry no tools and take no scripted reply.
 			const lane = names.includes("referee_verdict") ? "referee" : names.length > 0 ? "main" : undefined;
 			if (lane === "main") mainContexts.push(context);
-			if (lane === "referee") refereeContexts.push(context);
+			if (lane === "referee") {
+				refereeContexts.push(context);
+				refereeModels.push(model.id);
+			}
 			const next = lane === "main" ? main.shift() : lane === "referee" ? judge.shift() : undefined;
 			const message = next ? next(context) : reply({ content: [{ type: "text", text: "idle" }] });
 			queueMicrotask(() => {
@@ -211,6 +222,7 @@ describe("referee extension", () => {
 			return {
 				main: mainContexts,
 				referee: refereeContexts,
+				refereeModels,
 				run: restoreRun(entries),
 				snapshots: entries.filter(entry => entry.type === "custom" && entry.customType === RUN_ENTRY_TYPE).length,
 			};
@@ -240,16 +252,18 @@ describe("referee extension", () => {
 		// The review tool is offered from the first turn of the run.
 		expect(toolNames(main[0])).toContain("referee_review");
 		expect(messagesText(main[0])).toContain(OBJECTIVE);
-		// The first stop was refused with the objective restated.
-		expect(messagesText(main[1])).toContain("The referee has not passed the objective");
-		expect(messagesText(main[1])).toContain("No review has judged this objective yet");
+		// The first stop was refused with the objective restated, before any review judged it.
+		const firstBlock = addedText(main[1], main[0]);
+		expect(firstBlock).toContain("<referee-objective");
+		expect(firstBlock).not.toContain("<referee-feedback>");
 		// The referee judged the claim and failed it; the agent saw the findings.
 		expect(messagesText(outcome.referee[0])).toContain("a.txt says beta.");
 		expect(messagesText(main[2])).toContain("a.txt still says alpha.");
-		// An unchanged re-review never reached the referee.
-		expect(messagesText(main[3])).toContain(`${REFUSED} 1 failed`);
-		// The second review ran in the same referee session, so it saw the first.
-		expect(messagesText(outcome.referee[2])).toContain("Review 1: completion claim");
+		// An unchanged re-review was refused before it reached the referee.
+		expect(main[3]?.messages.at(-1)).toMatchObject({ role: "toolResult", isError: true });
+		// The second review ran in the same referee session: it opened on the whole first review.
+		const firstReview = outcome.referee[1]?.messages ?? [];
+		expect(outcome.referee[2]?.messages.slice(0, firstReview.length)).toEqual(firstReview);
 		// After the pass the tool is gone and the stop went through: no further turns.
 		expect(toolNames(main[5])).not.toContain("referee_review");
 		expect(main).toHaveLength(6);
@@ -271,8 +285,8 @@ describe("referee extension", () => {
 			],
 			[rule("fail"), say("Ruled."), outage(), rule("pass"), say("Ruled.")],
 		);
-		expect(messagesText(outcome.main[3])).toContain("could not finish review 2");
-		expect(messagesText(outcome.main[4])).not.toContain(REFUSED);
+		// The outage stayed an error: the referee never fell back to the agent's model.
+		expect(new Set(outcome.refereeModels)).toEqual(new Set(["referee"]));
 		expect(outcome.run?.reviews.map(entry => entry.outcome)).toEqual(["verdict", "error", "verdict"]);
 		expect(outcome.run?.status).toBe("passed");
 	}, 30_000);
@@ -293,10 +307,11 @@ describe("referee extension", () => {
 			[rule("fail"), say("Ruled.")],
 		);
 		expect(outcome.referee).toHaveLength(2);
-		expect(messagesText(outcome.main.at(-1))).toContain(REFUSED);
 		// A blocked stop restates the referee's last ruling: its summary and findings.
-		expect(messagesText(outcome.main[2])).toContain(SUMMARY);
-		expect(messagesText(outcome.main[2])).toContain("a.txt still says alpha.");
+		const blocked = addedText(outcome.main[2], outcome.main[1]);
+		expect(blocked).toContain("<referee-feedback>");
+		expect(blocked).toContain(SUMMARY);
+		expect(blocked).toContain("a.txt still says alpha.");
 		expect(outcome.run?.status).toBe("paused");
 		expect(outcome.run?.pauseReason).toBe("stalled");
 		expect(outcome.main).toHaveLength(8);
