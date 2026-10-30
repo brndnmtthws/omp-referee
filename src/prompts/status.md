@@ -1,4 +1,4 @@
-# Status update
+# Status check
 {{#if question}}
 
 The user asks:
@@ -18,7 +18,7 @@ The user asks:
 {{#if activity}}
 
 <agent-activity>
-The recent conversation between the user and the agent, newest last:
+Recent conversation between the user and the agent, newest last:
 
 {{activity}}
 </agent-activity>

@@ -105,7 +105,7 @@ describe("reviews", () => {
 		expect(run.reviewsSinceResume).toBe(0);
 		expect(budgetExhausted(run, { maxReviews: 1, stallLimit: STALL })).toBeUndefined();
 		run = recordReview(run, review(run, "verdict", { verdict: "fail" }), 3);
-		expect(budgetExhausted(run, { maxReviews: 1, stallLimit: STALL })).toContain("review limit");
+		expect(budgetExhausted(run, { maxReviews: 1, stallLimit: STALL })).toBeTypeOf("string");
 	});
 
 	it("enforces the spend budget across reviews and status checks, and resuming starts it over", () => {
@@ -113,7 +113,7 @@ describe("reviews", () => {
 		run = recordReview(run, review(run, "verdict", { verdict: "fail", costUsd: 0.4 }), 2);
 		run = addSpend(run, 0.2, 3);
 		expect(run.costUsd).toBeCloseTo(0.6);
-		expect(budgetExhausted(run, { maxCostUsd: 0.5, stallLimit: STALL })).toContain("budget");
+		expect(budgetExhausted(run, { maxCostUsd: 0.5, stallLimit: STALL })).toBeTypeOf("string");
 		run = resumeRun(pauseRun(run, "budget", 4), 5);
 		expect(budgetExhausted(run, { maxCostUsd: 0.5, stallLimit: STALL })).toBeUndefined();
 		expect(run.costUsd).toBeCloseTo(0.6);

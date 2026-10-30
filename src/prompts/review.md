@@ -30,4 +30,4 @@ The user changed the objective since your last review. Judge against this versio
 </question-for-user>
 {{/if}}
 
-Investigate the current project state yourself, then record your ruling with `referee_verdict`: {{#if blocked}}`escalate` or `fail`{{else}}`pass` or `fail`{{/if}}.
+Inspect the project state yourself, then record your ruling with `referee_verdict`: {{#if blocked}}`escalate` or `fail`{{else}}`pass` or `fail`{{/if}}.

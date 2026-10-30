@@ -93,7 +93,7 @@ type UpdateKind = "start" | "edit" | "resume" | "pause" | "stop";
 
 const UPDATE_LABELS: Record<UpdateKind, string> = {
 	start: "objective set",
-	edit: "objective changed",
+	edit: "objective edited",
 	resume: "resumed",
 	pause: "paused",
 	stop: "stopped",
@@ -117,26 +117,26 @@ interface ReviewToolDetails {
 /** `/referee` subcommands, in completion order; a `usage` means the subcommand takes an argument. */
 const SUBCOMMANDS: { name: string; description: string; usage?: string }[] = [
 	{ name: "set", description: "Start a run with this objective", usage: "<objective>" },
-	{ name: "edit", description: "Change the objective of the live run", usage: "[objective]" },
+	{ name: "edit", description: "Edit the objective", usage: "[objective]" },
 	{ name: "status", description: "Ask the referee where the objective stands", usage: "[question]" },
-	{ name: "show", description: "Show the objective and every review" },
-	{ name: "pause", description: "Let the agent stop until /referee resume" },
-	{ name: "resume", description: "Re-arm a paused run" },
-	{ name: "stop", description: "End the run" },
-	{ name: "model", description: "Choose the referee model", usage: "[selector | default]" },
+	{ name: "show", description: "Show the objective and reviews" },
+	{ name: "pause", description: "Pause the run until /referee resume" },
+	{ name: "resume", description: "Resume a paused run" },
+	{ name: "stop", description: "Stop the run" },
+	{ name: "model", description: "Set the referee model", usage: "[selector | default]" },
 ];
 
-const START = "▶ Set the objective and start";
-const STATUS = "? Ask the referee for a status update";
-const EDIT = "✎ Edit the objective";
-const SHOW = "≡ Show the objective and reviews";
+const START = "▶ Set objective and start";
+const STATUS = "? Ask for a status check";
+const EDIT = "✎ Edit objective";
+const SHOW = "≡ Show objective and reviews";
 const PAUSE = "⏸ Pause";
 const RESUME = "▶ Resume";
-const STOP = "■ Stop the run";
+const STOP = "■ Stop run";
 const MODEL = "⚙ Referee model…";
 const BUDGETS = "⚙ Budgets…";
-const EDIT_RUN = "Edit the live run's objective";
-const REPLACE_RUN = "Stop the live run and start a new one";
+const EDIT_RUN = "Edit the current run's objective";
+const REPLACE_RUN = "Stop the current run and start a new one";
 const DEFAULT_MODEL = "Default";
 
 const BUDGET_LABELS: Record<BudgetKey, string> = {
@@ -206,9 +206,9 @@ export default function referee(pi: ExtensionAPI): void {
 	const type = pi.arktype;
 	const verdictTool = refereeVerdictToolkit(type);
 	const reviewSchema = type({
-		kind: type("'complete' | 'blocked'").describe("complete: the objective is achieved; blocked: you need the user"),
+		kind: type("'complete' | 'blocked'").describe("complete: the objective is met; blocked: you need the user"),
 		claim: type("string").describe("what you did and why it meets the objective, or what blocks you"),
-		"evidence?": type("string").describe("commands you ran with their results, files changed, how to verify"),
+		"evidence?": type("string").describe("commands you ran with their results, files changed, and how to verify"),
 		"question?": type("string").describe("blocked only: what you need from the user"),
 	});
 	let config: RefereeConfig = {};
@@ -373,7 +373,7 @@ export default function referee(pi: ExtensionAPI): void {
 		if (run?.status === "active" && pauseActive) {
 			await commit(pauseRun(run, "restored", Date.now()), ctx);
 			ctx.ui.notify(
-				`Referee run restored paused: ${oneLine(run.objective, 60)} (/referee resume re-arms it)`,
+				`Referee run restored paused: ${oneLine(run.objective, 60)}. Run /referee resume to continue.`,
 				"info",
 			);
 			return;
@@ -416,7 +416,7 @@ export default function referee(pi: ExtensionAPI): void {
 			if (current?.status !== "active") {
 				return textResult(
 					current?.status === "paused"
-						? "The referee run is paused; the user re-arms it with /referee resume."
+						? "The referee run is paused; the user can resume it with /referee resume."
 						: "No referee run is active.",
 					true,
 				);
@@ -425,7 +425,7 @@ export default function referee(pi: ExtensionAPI): void {
 			const exhausted = budgetExhausted(current, resolveBudgets(config));
 			if (exhausted) {
 				await commit(pauseRun(current, "budget", Date.now()), ctx);
-				ctx.ui.notify(`Referee paused: ${exhausted}. /referee resume continues with a fresh budget.`, "warning");
+				ctx.ui.notify(`Referee paused: ${exhausted}. Run /referee resume for a fresh budget.`, "warning");
 				return textResult(
 					`The referee run is paused because ${exhausted}. Stop and tell the user where the objective stands; they can resume the run.`,
 				);
@@ -439,7 +439,7 @@ export default function referee(pi: ExtensionAPI): void {
 				previous.objectiveVersion === current.objectiveVersion
 			) {
 				return textResult(
-					`Nothing changed since review ${previous.index} failed. Address its findings, or gather fresh evidence with your tools, before asking again.`,
+					`Nothing changed since review ${previous.index} failed. Address its findings or gather new evidence with your tools before calling referee_review again.`,
 					true,
 				);
 			}
@@ -510,7 +510,7 @@ export default function referee(pi: ExtensionAPI): void {
 							summary: edited ? "The objective changed during the review." : "The review was cancelled.",
 							findings: [],
 						}
-					: { ...base, outcome: "error", summary: result.error ?? "The review failed.", findings: [] };
+					: { ...base, outcome: "error", summary: result.error ?? "The referee errored.", findings: [] };
 			const next = recordReview(latest, record, Date.now());
 			const recorded = next.reviews[next.reviews.length - 1]!;
 			await commit(next, ctx);
@@ -519,7 +519,7 @@ export default function referee(pi: ExtensionAPI): void {
 				ctx.ui.notify(`Referee passed the objective (${runUsageLabel(next)}).`, "info");
 			} else if (next.status === "paused" && latest.status === "active") {
 				ctx.ui.notify(
-					`Referee paused: the referee failed ${next.reviewErrors} reviews in a row (${oneLine(recorded.summary, 80)}). Fix it with /referee model, then /referee resume.`,
+					`Referee paused: ${next.reviewErrors} referee errors in a row (${oneLine(recorded.summary, 80)}). Switch models with /referee model if needed, then run /referee resume.`,
 					"warning",
 				);
 			}
@@ -591,7 +591,7 @@ export default function referee(pi: ExtensionAPI): void {
 		if (decision.action === "allow") return undefined;
 		if (decision.action === "stall") {
 			ctx.ui.notify(
-				`Referee paused: the agent stopped ${stallLimit} times in a row without doing anything. /referee resume re-arms it.`,
+				`Referee paused: the agent stopped ${stallLimit} times in a row without making progress. Run /referee resume to continue.`,
 				"warning",
 			);
 			return undefined;
@@ -648,7 +648,7 @@ export default function referee(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("referee", {
-		description: "Keep the agent on an objective until a second model verifies it (bare: menu)",
+		description: "Hold the agent on an objective until the referee passes it (bare: menu)",
 		getArgumentCompletions: subcommandCompletions,
 		handler: async (args, ctx) => {
 			try {
@@ -696,7 +696,7 @@ export default function referee(pi: ExtensionAPI): void {
 			const current = run;
 			const options: ExtensionUISelectOption[] = isLive(current)
 				? [
-						{ label: STATUS, description: "Ask without interrupting the agent" },
+						{ label: STATUS, description: "Ask the referee without interrupting the agent" },
 						{ label: EDIT, description: oneLine(current.objective, 80) },
 						current.status === "active"
 							? { label: PAUSE, description: "Let the agent stop until you resume" }
@@ -704,9 +704,9 @@ export default function referee(pi: ExtensionAPI): void {
 						{ label: SHOW, description: runUsageLabel(current) },
 						{ label: STOP, description: "End the run" },
 					]
-				: [{ label: START, description: "Write the objective; the agent starts at once" }];
+				: [{ label: START, description: "Write the objective and start the run" }];
 			options.push(
-				{ label: MODEL, description: config.model ?? "default: omp's advisor role" },
+				{ label: MODEL, description: config.model ?? "default: advisor role" },
 				{ label: BUDGETS, description: budgetSummary() },
 			);
 			const choice = await ctx.ui.select(
@@ -720,7 +720,7 @@ export default function referee(pi: ExtensionAPI): void {
 						if (await startFromEditor(ctx)) return;
 						break;
 					case STATUS: {
-						const question = await ctx.ui.input("Ask the referee", "Enter for a general status update");
+						const question = await ctx.ui.input("Status check", "Enter for a general status check");
 						if (question === undefined) break;
 						return status(ctx, question.trim());
 					}
@@ -768,14 +768,14 @@ export default function referee(pi: ExtensionAPI): void {
 		if (isLive(run)) {
 			if (!ctx.hasUI) {
 				ctx.ui.notify(
-					"A referee run is live: /referee edit <objective> changes its objective; /referee stop ends it.",
+					"A referee run is in progress: use /referee edit <objective> to edit it, or /referee stop to end it.",
 					"warning",
 				);
 				return;
 			}
 			const choice = await ctx.ui.select(`A referee run is ${run.status}: ${oneLine(run.objective, 60)}`, [
-				{ label: EDIT_RUN, description: "Keep its reviews; earlier rulings stop applying" },
-				{ label: REPLACE_RUN, description: "Its reviews end with it" },
+				{ label: EDIT_RUN, description: "Keep its reviews; earlier rulings no longer apply" },
+				{ label: REPLACE_RUN, description: "End the current run and its reviews" },
 			]);
 			if (choice === EDIT_RUN) return applyEdit(ctx, objective);
 			if (choice !== REPLACE_RUN) return;
@@ -783,7 +783,7 @@ export default function referee(pi: ExtensionAPI): void {
 		const modes = ctx.sessionModes?.getState();
 		const blocking = modes?.plan.status === "active" ? "plan" : modes?.goal.status === "active" ? "goal" : undefined;
 		if (blocking) {
-			ctx.ui.notify(`Leave ${blocking} mode before starting the referee.`, "warning");
+			ctx.ui.notify(`Exit ${blocking} mode before starting a referee run.`, "warning");
 			return;
 		}
 		let model: ResolvedRefereeModel;
@@ -810,7 +810,7 @@ export default function referee(pi: ExtensionAPI): void {
 		changedSinceReview = true;
 		await commit(next, ctx);
 		sendUpdate("start", next);
-		ctx.ui.notify(`Referee on (${model.selector}). /referee status asks it where things stand.`, "info");
+		ctx.ui.notify(`Referee run started (${model.selector}). Use /referee status for a status check.`, "info");
 	}
 
 	async function edit(ctx: ExtensionCommandContext, text: string): Promise<void> {
@@ -823,7 +823,7 @@ export default function referee(pi: ExtensionAPI): void {
 			ctx.ui.notify("Usage: /referee edit <objective>", "warning");
 			return;
 		}
-		const edited = await ctx.ui.editor(`Edit the referee objective (v${run.objectiveVersion})`, run.objective);
+		const edited = await ctx.ui.editor(`Edit referee objective (v${run.objectiveVersion})`, run.objective);
 		if (edited?.trim()) await applyEdit(ctx, edited);
 	}
 
@@ -860,7 +860,7 @@ export default function referee(pi: ExtensionAPI): void {
 		const next = pauseRun(run, "user", Date.now());
 		await commit(next, ctx);
 		sendUpdate("pause", next);
-		ctx.ui.notify("Referee paused: the agent may stop. /referee resume re-arms it.", "info");
+		ctx.ui.notify("Referee paused: the agent may stop. Run /referee resume to continue.", "info");
 	}
 
 	async function resume(ctx: ExtensionContext): Promise<void> {
@@ -909,7 +909,7 @@ export default function referee(pi: ExtensionAPI): void {
 			return;
 		}
 		if (statusCheck) {
-			ctx.ui.notify("A status check is already running; esc cancels it.", "info");
+			ctx.ui.notify("A status check is already running; press Esc to cancel it.", "info");
 			return;
 		}
 		let model: ResolvedRefereeModel;
@@ -975,7 +975,7 @@ export default function referee(pi: ExtensionAPI): void {
 				return;
 			}
 			const picked = await ctx.ui.select("Referee model (type to filter)", [
-				{ label: DEFAULT_MODEL, description: "omp's advisor role, preferring another family than the main model" },
+				{ label: DEFAULT_MODEL, description: "Advisor role, preferring a model family other than the agent's" },
 				...ctx.modelRegistry
 					.getAvailable()
 					.map(model => ({ label: formatModelString(model), description: model.name })),
@@ -1011,14 +1011,14 @@ export default function referee(pi: ExtensionAPI): void {
 	}
 
 	function budgetSummary(): string {
-		const reviews = config.maxReviews ? `at most ${config.maxReviews} reviews` : "unlimited reviews";
-		const spend = config.maxCostUsd ? `at most ${formatCost(config.maxCostUsd)}` : "unlimited spend";
+		const reviews = config.maxReviews ? `max ${config.maxReviews} reviews` : "unlimited reviews";
+		const spend = config.maxCostUsd ? `max ${formatCost(config.maxCostUsd)}` : "unlimited spend";
 		return `${reviews} · ${spend} · stall limit ${budgetValue("stallLimit")}`;
 	}
 
 	async function editBudgets(ctx: ExtensionCommandContext): Promise<void> {
 		const choice = await ctx.ui.select(
-			"Referee budgets (each active stretch of a run; resuming starts them over)",
+			"Referee budgets (reset on /referee resume)",
 			BUDGET_KEYS.map(key => ({ label: BUDGET_LABELS[key], description: budgetValue(key) })),
 		);
 		const key = BUDGET_KEYS.find(candidate => BUDGET_LABELS[candidate] === choice);

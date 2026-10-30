@@ -87,7 +87,7 @@ export function refereeVerdictToolkit(type: ExtensionAPI["arktype"]): (slot: Ver
 		summary: type("string").describe(`what you checked and how (>= ${MIN_SUMMARY_CHARS} chars)`),
 		"findings?": type("string")
 			.array()
-			.describe("one per unmet requirement: what is wrong, the evidence, what must change"),
+			.describe("one per unmet requirement: what is unmet, the evidence, and what must change"),
 	});
 	return slot => {
 		const tool: CustomTool<typeof schema> = {
@@ -100,11 +100,11 @@ export function refereeVerdictToolkit(type: ExtensionAPI["arktype"]): (slot: Ver
 			async execute(_toolCallId, params) {
 				const review = slot.review;
 				if (!review) return textResult("No review is open.", true);
-				if (review.verdict) return textResult(`Your verdict for review ${review.index} is already recorded.`, true);
+				if (review.verdict) return textResult(`Your ruling for review ${review.index} is already recorded.`, true);
 				const result = validateVerdict(review.kind, params);
 				if (typeof result === "string") return textResult(result, true);
 				review.verdict = result;
-				return textResult(`Verdict recorded: ${result.verdict}.`);
+				return textResult(`Ruling recorded: ${result.verdict}.`);
 			},
 		};
 		return tool;

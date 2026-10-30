@@ -5,7 +5,7 @@ The referee has not passed the objective, so you cannot stop yet.
 </referee-objective>
 {{#if feedback}}
 
-The referee's last word on this objective (review {{review}}, {{outcome}}):
+Review {{review}} ({{outcome}}) is the latest on this objective:
 <referee-feedback>
 {{feedback}}
 </referee-feedback>
@@ -14,4 +14,4 @@ The referee's last word on this objective (review {{review}}, {{outcome}}):
 No review has judged this objective yet.
 {{/if}}
 
-Keep working toward the objective. When it is met, verify it yourself and call `referee_review` with kind "complete" and your evidence. If you cannot continue without the user, call it with kind "blocked" and your question.
+Keep working toward the objective. When it is met, verify it yourself and call `referee_review` with kind "complete", your claim, and your evidence. If you cannot proceed without the user, call it with kind "blocked", your claim, and your question.

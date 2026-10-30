@@ -142,7 +142,7 @@ export function defaultRefereeModel(
 			: (candidates.find(candidate => family(candidate.model) !== family(main)) ?? first);
 	if (pick) return toResolved(pick.model, pick.thinkingLevel);
 	if (main) return toResolved(main, undefined);
-	throw new Error("No model is available for the referee: run /login, or pick one with /referee model.");
+	throw new Error("No referee model available: run /login, or choose one with /referee model.");
 }
 
 function toResolved(model: Model<Api>, thinking: ConfiguredThinkingLevel | undefined): ResolvedRefereeModel {

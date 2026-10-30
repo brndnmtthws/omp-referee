@@ -11,10 +11,10 @@ export const VERDICT_LABELS: Record<Verdict, string> = { pass: "PASS", fail: "FA
 
 const PAUSE_LABELS: Record<PauseReason, string> = {
 	user: "paused",
-	restored: "paused since the session was reopened",
-	stalled: "paused: the agent kept stopping without doing anything",
+	restored: "paused: session reopened",
+	stalled: "paused: agent stalled",
 	budget: "paused: budget reached",
-	error: "paused: the referee kept failing",
+	error: "paused: referee errors",
 };
 
 export function oneLine(text: string, width: number): string {
@@ -104,10 +104,10 @@ export function reviewResultText(run: RefereeRun, review: ReviewRecord): string 
 	switch (review.outcome) {
 		case "verdict":
 			if (review.verdict === "pass") {
-				return `The referee passed the objective (review ${review.index}).\n\n${review.summary}\n\nThe referee run is complete and no longer gates your turn. Report the outcome to the user and stop.`;
+				return `The referee passed the objective (review ${review.index}).\n\n${review.summary}\n\nThe referee run is complete and no longer gates your turn. Report the result to the user and stop.`;
 			}
 			if (review.verdict === "escalate") {
-				return `The referee agrees you need the user (review ${review.index}).\n\n${review.summary}\n\nAsk the user your question and stop; your next stop is allowed. The run stays active: once the user answers, continue toward the objective.`;
+				return `The referee accepted your blocked claim (review ${review.index}).\n\n${review.summary}\n\nAsk the user your question and stop; your next stop is allowed. The run stays active: once the user answers, continue toward the objective.`;
 			}
 			return [
 				`The referee failed review ${review.index}.`,
@@ -116,18 +116,18 @@ export function reviewResultText(run: RefereeRun, review: ReviewRecord): string 
 				"Address every finding and verify the result yourself, then call `referee_review` again. You cannot stop until the referee passes the objective.",
 			].join("\n\n");
 		case "stale":
-			return `The user changed the objective during review ${review.index}, so its ruling no longer applies. Work toward the current version, then request a new review:\n\n<referee-objective version="${run.objectiveVersion}">\n${escapeXmlText(run.objective)}\n</referee-objective>`;
+			return `The user changed the objective during review ${review.index}, so its ruling no longer applies. Work toward the current version, then call \`referee_review\` again:\n\n<referee-objective version="${run.objectiveVersion}">\n${escapeXmlText(run.objective)}\n</referee-objective>`;
 		case "aborted":
 			if (run.status === "paused")
-				return "The user paused the referee during the review. You may stop when you reach a good point.";
+				return "The user paused the referee run during the review. You may stop when you reach a good point.";
 			if (run.status === "stopped")
 				return "The user stopped the referee run; the objective no longer gates your turn.";
 			return `Review ${review.index} was cancelled.`;
 		case "error":
 			if (run.status === "paused") {
-				return `The referee could not finish review ${review.index}: ${review.summary}\n\nThe referee failed ${MAX_REVIEW_ERRORS} reviews in a row, so the run is paused. Stop and tell the user; they can fix the referee and resume the run.`;
+				return `The referee could not finish review ${review.index}: ${review.summary}\n\nThe referee errored on ${MAX_REVIEW_ERRORS} reviews in a row, so the run is paused. Stop and tell the user; they can fix the referee and resume the run.`;
 			}
-			return `The referee could not finish review ${review.index}: ${review.summary}\n\nRequest the review again.`;
+			return `The referee could not finish review ${review.index}: ${review.summary}\n\nCall \`referee_review\` again.`;
 	}
 }
 
@@ -135,7 +135,7 @@ export function reviewResultText(run: RefereeRun, review: ReviewRecord): string 
 const FEEDBACK_LABELS: Record<ReviewOutcome, string> = {
 	verdict: "ruling",
 	stale: "stale ruling",
-	error: "the referee could not finish",
+	error: "referee error",
 	aborted: "cancelled",
 };
 

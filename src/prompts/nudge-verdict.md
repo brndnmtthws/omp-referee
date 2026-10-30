@@ -1,1 +1,1 @@
-Your ruling on review {{index}} is not recorded yet. Call `referee_verdict` now.
+Call `referee_verdict` now: your ruling on review {{index}} is not recorded yet.
