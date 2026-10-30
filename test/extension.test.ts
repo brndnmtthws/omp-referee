@@ -1,7 +1,8 @@
 /**
  * End to end through omp's real session runtime: the extension loads into a
  * main session, `/referee` starts a run, and scripted models play the agent and
- * the referee. Proves the stop gate holds the agent until the referee passes.
+ * the referee. Proves the stop gate holds the agent until the referee passes,
+ * and that the guards around reviews neither trap the agent nor let it loop.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
@@ -19,10 +20,12 @@ import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { getAgentDir, removeWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
 import referee from "../src/index";
 import { RUN_ENTRY_TYPE, restoreRun } from "../src/run";
+import type { RefereeRun } from "../src/types";
 
 const API = "test-referee-extension";
 const OBJECTIVE = "Make a.txt say beta.";
 const SUMMARY = "Read a.txt and compared it with the objective.";
+const REFUSED = "Nothing changed since review";
 
 type Script = ((context: Context) => AssistantMessage)[];
 
@@ -59,12 +62,33 @@ function call(name: string, args: Record<string, unknown>) {
 		});
 }
 
+/** A provider failure omp does not retry. */
+function outage() {
+	return () => reply({ content: [], stopReason: "error", errorMessage: "provider exploded" });
+}
+
+const review = (claim: string) => call("referee_review", { kind: "complete", claim, evidence: "read a.txt" });
+const rule = (verdict: "pass" | "fail") =>
+	call(
+		"referee_verdict",
+		verdict === "fail"
+			? { verdict, summary: SUMMARY, findings: ["a.txt still says alpha."] }
+			: { verdict, summary: SUMMARY },
+	);
+
 function toolNames(context: Context | undefined): string[] {
 	return (context?.tools ?? []).map(tool => tool.name);
 }
 
 function messagesText(context: Context | undefined): string {
 	return JSON.stringify(context?.messages ?? []);
+}
+
+interface Outcome {
+	main: Context[];
+	referee: Context[];
+	run: RefereeRun | undefined;
+	snapshots: number;
 }
 
 describe("referee extension", () => {
@@ -120,36 +144,17 @@ describe("referee extension", () => {
 		await removeWithRetries(root);
 	});
 
-	it("holds the agent until the referee passes, refuses an unchanged re-review, then lets it stop", async () => {
+	/** Start a run of {@link OBJECTIVE} and play both scripts until the session settles for good. */
+	async function play(main: Script, judge: Script): Promise<Outcome> {
 		const mainContexts: Context[] = [];
 		const refereeContexts: Context[] = [];
-		// The run's last settle: an `agent_end` after the final reply that schedules no further turn.
+		// The last settle: an `agent_end` that schedules no further turn once the main script is spent.
 		const settled = Promise.withResolvers<void>();
-		let finalReplySent = false;
 		const probe = (pi: ExtensionAPI) => {
 			pi.on("agent_end", event => {
-				if (finalReplySent && event.willContinue !== true) settled.resolve();
+				if (main.length === 0 && event.willContinue !== true) settled.resolve();
 			});
 		};
-		const main: Script = [
-			// Stops at once without asking for a review: the gate sends it back.
-			say("All done."),
-			call("referee_review", { kind: "complete", claim: "a.txt says beta.", evidence: "I believe it does." }),
-			// Asks again without doing anything in between: refused before the referee runs.
-			call("referee_review", { kind: "complete", claim: "a.txt says beta, really." }),
-			call("read", { path: "a.txt" }),
-			call("referee_review", { kind: "complete", claim: "a.txt says beta.", evidence: "read a.txt" }),
-			() => {
-				finalReplySent = true;
-				return reply({ content: [{ type: "text", text: "The referee passed it." }] });
-			},
-		];
-		const judge: Script = [
-			call("referee_verdict", { verdict: "fail", summary: SUMMARY, findings: ["a.txt still says alpha."] }),
-			say("Ruled."),
-			call("referee_verdict", { verdict: "pass", summary: SUMMARY }),
-			say("Ruled."),
-		];
 		registerCustomApi(API, (_model, context) => {
 			const stream = new AssistantMessageEventStream();
 			const names = toolNames(context);
@@ -160,6 +165,10 @@ describe("referee extension", () => {
 			const next = lane === "main" ? main.shift() : lane === "referee" ? judge.shift() : undefined;
 			const message = next ? next(context) : reply({ content: [{ type: "text", text: "idle" }] });
 			queueMicrotask(() => {
+				if (message.stopReason === "error") {
+					stream.push({ type: "error", reason: "error", error: message });
+					return;
+				}
 				stream.push({ type: "start", partial: message });
 				message.content.forEach((block, contentIndex) => {
 					if (block.type !== "toolCall") return;
@@ -197,36 +206,95 @@ describe("referee extension", () => {
 			await session.prompt(`/referee ${OBJECTIVE}`);
 			await settled.promise;
 			expect(extensionErrors).toEqual([]);
-
-			// The review tool is offered from the first turn of the run.
-			expect(toolNames(mainContexts[0])).toContain("referee_review");
-			expect(messagesText(mainContexts[0])).toContain(OBJECTIVE);
-			// The first stop was refused with the objective restated.
-			expect(messagesText(mainContexts[1])).toContain("The referee has not passed the objective");
-			// The referee judged the claim and failed it; the agent saw the findings.
-			expect(messagesText(refereeContexts[0])).toContain("a.txt says beta.");
-			expect(messagesText(mainContexts[2])).toContain("a.txt still says alpha.");
-			// An unchanged re-review never reached the referee.
-			expect(messagesText(mainContexts[3])).toContain("Nothing changed since review 1 failed");
-			// The second review ran in the same referee session, so it saw the first.
-			expect(messagesText(refereeContexts[2])).toContain("Review 1: completion claim");
-			// After the pass the tool is gone and the stop went through: no further turns.
-			expect(toolNames(mainContexts[5])).not.toContain("referee_review");
-			expect(mainContexts).toHaveLength(6);
-			expect(refereeContexts).toHaveLength(4);
-
+			expect(judge).toHaveLength(0);
 			const entries = session.sessionManager.getEntries();
-			const run = restoreRun(entries);
-			expect(run?.status).toBe("passed");
-			expect(run?.reviews.map(review => review.verdict)).toEqual(["fail", "pass"]);
-			expect(
-				entries.filter(entry => entry.type === "custom" && entry.customType === RUN_ENTRY_TYPE).length,
-			).toBeGreaterThan(1);
+			return {
+				main: mainContexts,
+				referee: refereeContexts,
+				run: restoreRun(entries),
+				snapshots: entries.filter(entry => entry.type === "custom" && entry.customType === RUN_ENTRY_TYPE).length,
+			};
 		} finally {
 			await session.dispose();
 			for (const ref of AgentRegistry.global().list()) {
 				if (ref.id.startsWith("Referee")) AgentRegistry.global().unregister(ref.id);
 			}
 		}
+	}
+
+	it("holds the agent until the referee passes, refuses an unchanged re-review, then lets it stop", async () => {
+		const outcome = await play(
+			[
+				// Stops at once without asking for a review: the gate sends it back.
+				say("All done."),
+				review("a.txt says beta."),
+				// Asks again without doing anything in between: refused before the referee runs.
+				review("a.txt says beta, really."),
+				call("read", { path: "a.txt" }),
+				review("a.txt says beta."),
+				say("The referee passed it."),
+			],
+			[rule("fail"), say("Ruled."), rule("pass"), say("Ruled.")],
+		);
+		const { main } = outcome;
+		// The review tool is offered from the first turn of the run.
+		expect(toolNames(main[0])).toContain("referee_review");
+		expect(messagesText(main[0])).toContain(OBJECTIVE);
+		// The first stop was refused with the objective restated.
+		expect(messagesText(main[1])).toContain("The referee has not passed the objective");
+		// The referee judged the claim and failed it; the agent saw the findings.
+		expect(messagesText(outcome.referee[0])).toContain("a.txt says beta.");
+		expect(messagesText(main[2])).toContain("a.txt still says alpha.");
+		// An unchanged re-review never reached the referee.
+		expect(messagesText(main[3])).toContain(`${REFUSED} 1 failed`);
+		// The second review ran in the same referee session, so it saw the first.
+		expect(messagesText(outcome.referee[2])).toContain("Review 1: completion claim");
+		// After the pass the tool is gone and the stop went through: no further turns.
+		expect(toolNames(main[5])).not.toContain("referee_review");
+		expect(main).toHaveLength(6);
+		expect(outcome.referee).toHaveLength(4);
+		expect(outcome.run?.status).toBe("passed");
+		expect(outcome.run?.reviews.map(entry => entry.verdict)).toEqual(["fail", "pass"]);
+		expect(outcome.snapshots).toBeGreaterThan(1);
+	}, 30_000);
+
+	it("retries a review the referee failed to finish without demanding new work, even after a fail", async () => {
+		const outcome = await play(
+			[
+				review("a.txt says beta."),
+				call("read", { path: "a.txt" }),
+				review("a.txt says beta now."),
+				// The referee errored; asking again right away must reach it.
+				review("a.txt says beta now."),
+				say("The referee passed it."),
+			],
+			[rule("fail"), say("Ruled."), outage(), rule("pass"), say("Ruled.")],
+		);
+		expect(messagesText(outcome.main[3])).toContain("could not finish review 2");
+		expect(messagesText(outcome.main[4])).not.toContain(REFUSED);
+		expect(outcome.run?.reviews.map(entry => entry.outcome)).toEqual(["verdict", "error", "verdict"]);
+		expect(outcome.run?.status).toBe("passed");
+	}, 30_000);
+
+	it("pauses a run whose agent only repeats refused reviews between stops", async () => {
+		const outcome = await play(
+			[
+				review("a.txt says beta."),
+				say("Done."),
+				// From here on every review is refused, so no stop shows progress.
+				review("a.txt says beta."),
+				say("Done."),
+				review("a.txt says beta."),
+				say("Done."),
+				review("a.txt says beta."),
+				say("Done."),
+			],
+			[rule("fail"), say("Ruled.")],
+		);
+		expect(outcome.referee).toHaveLength(2);
+		expect(messagesText(outcome.main.at(-1))).toContain(REFUSED);
+		expect(outcome.run?.status).toBe("paused");
+		expect(outcome.run?.pauseReason).toBe("stalled");
+		expect(outcome.main).toHaveLength(8);
 	}, 30_000);
 });

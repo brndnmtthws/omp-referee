@@ -44,7 +44,7 @@ Write the objective as the contract: the referee fails anything it cannot verify
 1. **Work.** The agent works toward the objective. Whenever it tries to end its turn, a stop hook sends it back with the objective restated and the open findings of its last failed review.
 2. **Review.** When the agent believes the objective is met, it calls `referee_review` with its claim and evidence. The referee checks the actual project state against every requirement: it reads files, reruns tests, and gathers its own evidence. It sees the objective, the claim, and the project, not the conversation. It rules through a tool, so code reads the ruling:
    - **pass:** the run ends and the agent may stop.
-   - **fail:** the agent gets the findings and keeps working. Asking again without running any tool in between is refused.
+   - **fail:** the agent gets the findings and keeps working. Asking again without running any tool since the fail is refused; a review the referee could not finish can be retried right away.
 3. **Blocked.** When the agent cannot continue without you (a decision only you can make, missing access, approval for a risky step), it calls `referee_review` with its question. If the referee agrees, it rules **escalate** and the agent may stop to ask; otherwise it rules **fail** and says how to proceed. The run stays active, so once you answer, the agent continues toward the objective.
 
 The referee keeps one session per run, so later reviews re-check its earlier findings. Its transcript is at `history://Referee` (`Referee-2` and so on when a session holds several). Editing the objective voids rulings on the old version, including an escalation, and cancels a review in flight.
@@ -52,7 +52,7 @@ The referee keeps one session per run, so later reviews re-check its earlier fin
 ## Stopping
 
 - **Esc** interrupts the agent at any time. The run stays active: the next turn you start is held to the objective again. Pause the run to chat freely.
-- **Stalls:** after 3 stops in a row without any tool call, the run pauses instead of sending the agent back again.
+- **Stalls:** after 3 stops in a row with no progress in between (no tool call, and no review that actually ran), the run pauses instead of sending the agent back again.
 - **Referee failures:** after 3 reviews in a row that the referee fails to finish (a provider outage, for example), the run pauses. Switch the model with `/referee model`, then resume.
 - **Budgets:** optional caps on reviews and on referee spend. When one is reached, the run pauses and the agent is told to report where things stand. Resuming starts the budgets over.
 - **Reopened sessions:** a run that was active when omp exited comes back paused.

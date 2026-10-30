@@ -423,13 +423,6 @@ export default function referee(pi: ExtensionAPI): void {
 				);
 			}
 			if (reviewing) return textResult("A review is already running; wait for its ruling.", true);
-			const last = latestVerdict(current);
-			if (!changedSinceReview && last?.verdict === "fail") {
-				return textResult(
-					`Nothing changed since review ${last.index} failed. Address its findings, or gather fresh evidence with your tools, before asking again.`,
-					true,
-				);
-			}
 			const exhausted = budgetExhausted(current, resolveBudgets(config));
 			if (exhausted) {
 				await commit(pauseRun(current, "budget", Date.now()), ctx);
@@ -438,10 +431,25 @@ export default function referee(pi: ExtensionAPI): void {
 					`The referee run is paused because ${exhausted}. Stop and tell the user where the objective stands; they can resume the run.`,
 				);
 			}
+			// Only a fail with nothing done since blocks a re-review; an errored or cancelled one is retried as is.
+			const previous = current.reviews.at(-1);
+			if (
+				!changedSinceReview &&
+				previous?.outcome === "verdict" &&
+				previous.verdict === "fail" &&
+				previous.objectiveVersion === current.objectiveVersion
+			) {
+				return textResult(
+					`Nothing changed since review ${previous.index} failed. Address its findings, or gather fresh evidence with your tools, before asking again.`,
+					true,
+				);
+			}
 
 			const controller = new AbortController();
 			reviewing = controller;
 			changedSinceReview = false;
+			// A review that runs is progress for the stall detector; a refused one is not.
+			toolsSinceStop += 1;
 			const index = current.reviews.length + 1;
 			const startedAt = Date.now();
 			const model = current.refereeModel;
@@ -603,9 +611,10 @@ export default function referee(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_execution_start", (event, ctx) => {
-		if (ctx.agent.kind !== "main") return;
+		// `referee_review` counts itself once it actually runs.
+		if (ctx.agent.kind !== "main" || event.toolName === REVIEW_TOOL_NAME) return;
 		toolsSinceStop += 1;
-		if (event.toolName !== REVIEW_TOOL_NAME) changedSinceReview = true;
+		changedSinceReview = true;
 	});
 
 	pi.on("session.compacting", (_event, ctx) => {
