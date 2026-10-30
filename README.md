@@ -2,6 +2,8 @@
 
 `/referee <objective>` puts the agent in [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`) on one objective and keeps it there until a second model, the referee, checks the project and rules that the objective is met. It works like omp's goal mode, except the agent cannot declare itself done: every attempt to stop sends it back to work until the referee passes the objective. It is a plain omp extension: the stock `omp` binary loads it, and nothing in omp is patched.
 
+The referee works much like omp's advisor: an independent model in its own session, with read-only tools and its own transcript. Two things differ. It judges the project against the objective rather than reviewing the conversation as it goes, and it rules through a tool whose verdict gates the agent's turn.
+
 ## Install
 
 ```sh
