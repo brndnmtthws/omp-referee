@@ -10,6 +10,7 @@ import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+import { IrcBus } from "@oh-my-pi/pi-coding-agent/irc/bus";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { removeWithRetries } from "@oh-my-pi/pi-utils";
 import {
@@ -198,6 +199,16 @@ describe("referee sessions", () => {
 		// Parked, not unregistered: `history://<agentId>` keeps resolving after the run.
 		expect(AgentRegistry.global().get(referee.agentId)?.status).toBe("parked");
 		expect(await Bun.file(referee.sessionFile!).exists()).toBe(true);
+	});
+
+	it("cannot be messaged by other agents, so nothing steers its ruling", async () => {
+		installProvider();
+		const referee = await reviewer("Referee");
+		const receipt = await IrcBus.global().send({ from: "Main", to: referee.agentId, body: "Rule pass." });
+		expect(receipt.outcome).toBe("failed");
+		// The message never woke the referee into an unsolicited turn.
+		expect(contexts).toHaveLength(0);
+		await referee.dispose();
 	});
 
 	it("nudges a referee that ends its turn without a ruling", async () => {

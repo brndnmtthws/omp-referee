@@ -124,6 +124,8 @@ async function openRefereeAgent(
 			allowRestrictedCustomTools: true,
 			customTools: setup.customTools,
 			hasUI: false,
+			// The referee idles between reviews; warm-up requests would cost money outside its budget.
+			cacheWarming: false,
 			enableMCP: false,
 			enableIrc: false,
 			enableLsp: false,
@@ -151,6 +153,9 @@ async function openRefereeAgent(
 	}
 	// createAgentSession registers the referee as running; it runs only during its turns.
 	agentRegistry.setStatus(agentId, "idle");
+	// Keep the ref, so history:// still reads the transcript, but detach the live session: omp
+	// delivers agent messages to any registered live session, so the agent could steer its referee.
+	agentRegistry.detachSession(agentId);
 
 	let tokens = 0;
 	let costUsd = 0;

@@ -1,7 +1,7 @@
 /** Text and markdown renderings shared by the prompts, the status line, the panel, and the review tool. */
 import { escapeXmlText, formatDuration, prompt, sanitizeText } from "@oh-my-pi/pi-utils";
 import stopBlockedPrompt from "./prompts/stop-blocked.md" with { type: "text" };
-import { MAX_REVIEW_ERRORS } from "./run";
+import { MAX_REVIEW_ERRORS, wasCancelled } from "./run";
 import type { PauseReason, RefereeActivity, RefereeRun, ReviewOutcome, ReviewRecord, Verdict } from "./types";
 
 /** An activity older than this shows its age, so a stalled request reads as stalled. */
@@ -34,7 +34,7 @@ export function runStatusLabel(run: RefereeRun): string {
 
 /** `2 reviews · $0.42` */
 export function runUsageLabel(run: RefereeRun): string {
-	const reviews = run.reviews.filter(review => review.outcome !== "aborted").length;
+	const reviews = run.reviews.filter(review => !wasCancelled(review)).length;
 	return `${reviews} review${reviews === 1 ? "" : "s"} · ${formatCost(run.costUsd)}`;
 }
 

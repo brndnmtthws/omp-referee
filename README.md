@@ -87,7 +87,7 @@ Without `model`, the referee uses omp's advisor role: a configured `modelRoles.a
 
 ## Safety
 
-The referee gets read-only file, search, AST, and web tools (`read`, `grep`, `glob`, `ast_grep`, `web_search`), `bash` for diagnostics, and `referee_verdict` (review sessions only). It has no edit or write tools, and its instructions forbid modifying the project (scratch files go in `mktemp -d`). `bash` is omp's stock tool, so this boundary is an instruction, not a sandbox.
+The referee gets read-only file, search, AST, and web tools (`read`, `grep`, `glob`, `ast_grep`, `web_search`), `bash` for diagnostics, and `referee_verdict` (review sessions only). It has no edit or write tools, and its instructions forbid modifying the project (scratch files go in `mktemp -d`). `bash` is omp's stock tool, so this boundary is an instruction, not a sandbox. Other agents cannot message the referee's session, so the agent cannot steer a ruling outside `referee_review`.
 
 ## Compatibility
 

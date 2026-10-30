@@ -98,22 +98,28 @@ export function setRefereeModel(run: RefereeRun, refereeModel: string, now: numb
 	return { ...run, refereeModel, reviewErrors: 0, updatedAt: now };
 }
 
+/** Whether a review ended without running its course: cancelled, or cut short by an objective edit. */
+export function wasCancelled(review: ReviewRecord): boolean {
+	return review.outcome === "aborted" || (review.outcome === "stale" && review.verdict === undefined);
+}
+
 /**
  * Record a finished review and apply its verdict: `pass` ends the run,
  * `escalate` lets the next stop through, and `fail` leaves the gate armed. A
  * verdict on an older objective version is recorded as stale and applies
- * nothing. Aborted reviews do not count toward the review budget, and
- * {@link MAX_REVIEW_ERRORS} errored reviews in a row pause an active run.
+ * nothing. Cancelled reviews count toward neither the review budget nor the
+ * error streak, and {@link MAX_REVIEW_ERRORS} errored reviews in a row pause an
+ * active run.
  */
 export function recordReview(run: RefereeRun, review: ReviewRecord, now: number): RefereeRun {
 	const stale = review.outcome === "verdict" && review.objectiveVersion !== run.objectiveVersion;
 	const entry: ReviewRecord = stale ? { ...review, outcome: "stale" } : review;
-	const reviewErrors =
-		entry.outcome === "error" ? run.reviewErrors + 1 : entry.outcome === "aborted" ? run.reviewErrors : 0;
+	const cancelled = wasCancelled(entry);
+	const reviewErrors = entry.outcome === "error" ? run.reviewErrors + 1 : cancelled ? run.reviewErrors : 0;
 	const next: RefereeRun = {
 		...run,
 		reviews: [...run.reviews, entry],
-		reviewsSinceResume: run.reviewsSinceResume + (entry.outcome === "aborted" ? 0 : 1),
+		reviewsSinceResume: run.reviewsSinceResume + (cancelled ? 0 : 1),
 		costSinceResume: run.costSinceResume + entry.costUsd,
 		costUsd: run.costUsd + entry.costUsd,
 		reviewErrors,

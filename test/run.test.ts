@@ -99,12 +99,14 @@ describe("reviews", () => {
 		expect(run.reviews.at(-1)!.outcome).toBe("stale");
 	});
 
-	it("does not count cancelled reviews toward the review budget", () => {
+	it("does not count cancelled reviews toward the review budget, including one an edit cut short", () => {
 		let run = freshRun();
 		run = recordReview(run, review(run, "aborted"), 2);
+		// The objective changed mid-review: recorded as stale, with no ruling.
+		run = recordReview(run, review(run, "stale"), 3);
 		expect(run.reviewsSinceResume).toBe(0);
 		expect(budgetExhausted(run, { maxReviews: 1, stallLimit: STALL })).toBeUndefined();
-		run = recordReview(run, review(run, "verdict", { verdict: "fail" }), 3);
+		run = recordReview(run, review(run, "verdict", { verdict: "fail" }), 4);
 		expect(budgetExhausted(run, { maxReviews: 1, stallLimit: STALL })).toBeTypeOf("string");
 	});
 

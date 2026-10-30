@@ -218,7 +218,7 @@ export default function referee(pi: ExtensionAPI): void {
 	let reviewing: AbortController | undefined;
 	let reviewActivity: RefereeActivity | undefined;
 	let statusCheck: AbortController | undefined;
-	let panel: { view: RefereePanel; timer?: Timer; unsubscribe: () => void } | undefined;
+	let panel: { view: RefereePanel; timer?: Timer; unsubscribe: () => void; onCancel?: () => void } | undefined;
 	/** Main-agent tool calls since the gate last saw a stop. */
 	let toolsSinceStop = 0;
 	/** Whether the agent ran any tool besides `referee_review` since the last review started. */
@@ -336,11 +336,10 @@ export default function referee(pi: ExtensionAPI): void {
 		const view = new RefereePanel(title, ctx.ui.theme);
 		const unsubscribe = ctx.ui.onTerminalInput(data => {
 			if (!matchesKey(data, "escape")) return undefined;
-			if (!view.settled) onCancel?.();
 			closePanel(ctx);
 			return { consume: true };
 		});
-		panel = { view, unsubscribe };
+		panel = { view, unsubscribe, onCancel };
 		if (onCancel) panel.timer = ctx.setInterval(() => view.tick(), SPINNER_INTERVAL_MS);
 		ctx.ui.setWidget(PANEL_KEY, view.widget, { placement: "aboveEditor" });
 		return view;
@@ -356,6 +355,8 @@ export default function referee(pi: ExtensionAPI): void {
 		const current = panel;
 		if (!current) return;
 		panel = undefined;
+		// A check still running in a closed or replaced panel would go on invisibly, with no way to cancel it.
+		if (!current.view.settled) current.onCancel?.();
 		if (current.timer) ctx.clearTimer(current.timer);
 		current.unsubscribe();
 		ctx.ui.setWidget(PANEL_KEY, undefined);
@@ -490,7 +491,11 @@ export default function referee(pi: ExtensionAPI): void {
 			}
 
 			const latest = run;
-			if (latest?.id !== current.id) return textResult("The referee run ended during the review.");
+			if (latest?.id !== current.id) {
+				// A reviewer created while the run ended must not outlive it.
+				if (reviewer?.runId === current.id) await disposeReviewer();
+				return textResult("The referee run ended during the review.");
+			}
 			const edited = latest.objectiveVersion !== current.objectiveVersion;
 			const base = {
 				index,
@@ -514,8 +519,9 @@ export default function referee(pi: ExtensionAPI): void {
 			const next = recordReview(latest, record, Date.now());
 			const recorded = next.reviews[next.reviews.length - 1]!;
 			await commit(next, ctx);
+			// A stop during reviewer creation finds no reviewer to dispose; the run's end does it.
+			if (!isLive(next)) await disposeReviewer();
 			if (next.status === "passed") {
-				await disposeReviewer();
 				ctx.ui.notify(`Referee passed the objective (${runUsageLabel(next)}).`, "info");
 			} else if (next.status === "paused" && latest.status === "active") {
 				ctx.ui.notify(
@@ -651,16 +657,17 @@ export default function referee(pi: ExtensionAPI): void {
 		description: "Hold the agent on an objective until the referee passes it (bare: menu)",
 		getArgumentCompletions: subcommandCompletions,
 		handler: async (args, ctx) => {
+			const text = args.trim();
+			const match = /^(\S+)\s*([\s\S]*)$/.exec(text);
+			const sub = match && SUBCOMMANDS.find(entry => entry.name === match[1]!.toLowerCase())?.name;
 			try {
 				config = await readRefereeConfig();
 			} catch (error) {
 				ctx.ui.notify(errorText(error), "error");
-				return;
+				// Pausing and stopping release the gate: a bad hand edit must not trap the agent.
+				if (sub !== "pause" && sub !== "stop") return;
 			}
-			const text = args.trim();
-			if (!text) return menu(ctx);
-			const match = /^(\S+)\s*([\s\S]*)$/.exec(text)!;
-			const sub = SUBCOMMANDS.find(entry => entry.name === match[1]!.toLowerCase())?.name;
+			if (!match) return menu(ctx);
 			const rest = match[2]!.trim();
 			switch (sub) {
 				case "set":
