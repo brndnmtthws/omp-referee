@@ -41,14 +41,12 @@ import {
 	writeRefereeConfig,
 } from "./config";
 import { RefereePanel } from "./panel";
-import stopBlockedPrompt from "./prompts/stop-blocked.md" with { type: "text" };
 import reviewToolDescription from "./prompts/tools/review.md" with { type: "text" };
 import updatePrompt from "./prompts/update.md" with { type: "text" };
 import { createReviewer, type RefereeSessionOptions, runStatusCheck } from "./referee";
 import {
 	activityLabel,
 	formatCost,
-	latestVerdict,
 	oneLine,
 	reviewDigest,
 	reviewResultText,
@@ -56,6 +54,7 @@ import {
 	runStatusLabel,
 	runUsageLabel,
 	statusLineText,
+	stopBlockedReason,
 	VERDICT_LABELS,
 } from "./render";
 import {
@@ -597,16 +596,9 @@ export default function referee(pi: ExtensionAPI): void {
 			);
 			return undefined;
 		}
-		const last = latestVerdict(current);
-		const failed = last?.verdict === "fail" ? last : undefined;
 		return {
 			decision: "block",
-			reason: prompt.render(stopBlockedPrompt, {
-				version: current.objectiveVersion,
-				objective: escapeXmlText(current.objective),
-				review: failed?.index,
-				findings: failed?.findings.map(escapeXmlText),
-			}),
+			reason: stopBlockedReason(current),
 		};
 	});
 

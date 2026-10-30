@@ -242,6 +242,7 @@ describe("referee extension", () => {
 		expect(messagesText(main[0])).toContain(OBJECTIVE);
 		// The first stop was refused with the objective restated.
 		expect(messagesText(main[1])).toContain("The referee has not passed the objective");
+		expect(messagesText(main[1])).toContain("No review has judged this objective yet");
 		// The referee judged the claim and failed it; the agent saw the findings.
 		expect(messagesText(outcome.referee[0])).toContain("a.txt says beta.");
 		expect(messagesText(main[2])).toContain("a.txt still says alpha.");
@@ -293,6 +294,9 @@ describe("referee extension", () => {
 		);
 		expect(outcome.referee).toHaveLength(2);
 		expect(messagesText(outcome.main.at(-1))).toContain(REFUSED);
+		// A blocked stop restates the referee's last ruling: its summary and findings.
+		expect(messagesText(outcome.main[2])).toContain(SUMMARY);
+		expect(messagesText(outcome.main[2])).toContain("a.txt still says alpha.");
 		expect(outcome.run?.status).toBe("paused");
 		expect(outcome.run?.pauseReason).toBe("stalled");
 		expect(outcome.main).toHaveLength(8);

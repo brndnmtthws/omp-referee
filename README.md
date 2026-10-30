@@ -41,7 +41,7 @@ Write the objective as the contract: the referee fails anything it cannot verify
 
 ## How a run works
 
-1. **Work.** The agent works toward the objective. Whenever it tries to end its turn, a stop hook sends it back with the objective restated and the open findings of its last failed review.
+1. **Work.** The agent works toward the objective. Whenever it tries to end its turn, a stop hook sends it back with the objective restated and the referee's latest word on it: the ruling summary, why it failed, and what must change. Before any review, it says no review has judged the objective yet.
 2. **Review.** When the agent believes the objective is met, it calls `referee_review` with its claim and evidence. The referee checks the actual project state against every requirement: it reads files, reruns tests, and gathers its own evidence. It sees the objective, the claim, and the project, not the conversation. It rules through a tool, so code reads the ruling:
    - **pass:** the run ends and the agent may stop.
    - **fail:** the agent gets the findings and keeps working. Asking again without running any tool since the fail is refused; a review the referee could not finish can be retried right away.

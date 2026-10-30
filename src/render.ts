@@ -1,7 +1,8 @@
 /** Text and markdown renderings shared by the prompts, the status line, the panel, and the review tool. */
-import { escapeXmlText, formatDuration, sanitizeText } from "@oh-my-pi/pi-utils";
+import { escapeXmlText, formatDuration, prompt, sanitizeText } from "@oh-my-pi/pi-utils";
+import stopBlockedPrompt from "./prompts/stop-blocked.md" with { type: "text" };
 import { MAX_REVIEW_ERRORS } from "./run";
-import type { PauseReason, RefereeActivity, RefereeRun, ReviewRecord, Verdict } from "./types";
+import type { PauseReason, RefereeActivity, RefereeRun, ReviewOutcome, ReviewRecord, Verdict } from "./types";
 
 /** An activity older than this shows its age, so a stalled request reads as stalled. */
 const SHOW_ACTIVITY_AGE_MS = 5_000;
@@ -79,15 +80,6 @@ export function reviewDigest(reviews: readonly ReviewRecord[]): string {
 	return reviews.length > 0 ? reviews.map(reviewItem).join("\n") : "No reviews yet.";
 }
 
-/** The newest review that produced a verdict on the current objective, if any. */
-export function latestVerdict(run: RefereeRun): ReviewRecord | undefined {
-	for (let index = run.reviews.length - 1; index >= 0; index--) {
-		const review = run.reviews[index]!;
-		if (review.outcome === "verdict") return review.objectiveVersion === run.objectiveVersion ? review : undefined;
-	}
-	return undefined;
-}
-
 /** `/referee show`: the objective, the run's state, and every review. */
 export function runOverview(run: RefereeRun): string {
 	const quoted = run.objective
@@ -137,4 +129,35 @@ export function reviewResultText(run: RefereeRun, review: ReviewRecord): string 
 			}
 			return `The referee could not finish review ${review.index}: ${review.summary}\n\nRequest the review again.`;
 	}
+}
+
+/** How a review that produced no ruling reads inside the referee-feedback block. */
+const FEEDBACK_LABELS: Record<ReviewOutcome, string> = {
+	verdict: "ruling",
+	stale: "stale ruling",
+	error: "the referee could not finish",
+	aborted: "cancelled",
+};
+
+/**
+ * The reason a blocked stop carries back to the main agent: the objective, then
+ * the referee's newest word on it (summary and findings), so a failed or
+ * unfinished review says why the agent cannot stop and what to fix.
+ */
+export function stopBlockedReason(run: RefereeRun): string {
+	const latest = run.reviews.at(-1);
+	const review = latest?.objectiveVersion === run.objectiveVersion ? latest : undefined;
+	const outcome = review
+		? review.outcome === "verdict" && review.verdict
+			? review.verdict
+			: FEEDBACK_LABELS[review.outcome]
+		: undefined;
+	const feedback = review ? [review.summary, ...review.findings.map(finding => `- ${finding}`)].join("\n") : undefined;
+	return prompt.render(stopBlockedPrompt, {
+		version: run.objectiveVersion,
+		objective: escapeXmlText(run.objective),
+		review: review?.index,
+		outcome,
+		feedback: feedback ? escapeXmlText(feedback) : undefined,
+	});
 }
