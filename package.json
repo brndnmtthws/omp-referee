@@ -1,0 +1,47 @@
+{
+	"name": "omp-referee",
+	"version": "0.1.0",
+	"description": "Referee for oh-my-pi: a goal loop the agent cannot leave until a second model verifies the objective is met",
+	"keywords": [
+		"omp",
+		"oh-my-pi",
+		"omp-plugin",
+		"referee",
+		"goal",
+		"verification",
+		"llm",
+		"agents"
+	],
+	"homepage": "https://github.com/brndnmtthws/omp-referee#readme",
+	"bugs": {
+		"url": "https://github.com/brndnmtthws/omp-referee/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/brndnmtthws/omp-referee.git"
+	},
+	"license": "MIT",
+	"author": "Brenden Matthews <brenden@brndn.io>",
+	"type": "module",
+	"omp": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	},
+	"files": [
+		"src",
+		"README.md"
+	],
+	"scripts": {
+		"check": "tsgo -p tsconfig.json --noEmit && oxlint src test && oxfmt --check 'src/**/*.ts' 'test/**/*.ts'",
+		"fmt": "oxfmt 'src/**/*.ts' 'test/**/*.ts'",
+		"test": "bun test"
+	},
+	"devDependencies": {
+		"@oh-my-pi/pi-coding-agent": "18.14.0",
+		"@types/bun": "^1.4.3",
+		"@typescript/native-preview": "^7.0.0-dev.20260707.2",
+		"oxfmt": "^0.73.0",
+		"oxlint": "^1.88.0"
+	}
+}
