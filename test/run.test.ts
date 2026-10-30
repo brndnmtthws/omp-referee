@@ -82,6 +82,14 @@ describe("stop gate", () => {
 		expect(decideStop(allowed.run, false, STALL, 4).action).toBe("block");
 	});
 
+	it("revokes an unused escalation once a later ruling fails", () => {
+		let run = freshRun();
+		run = recordReview(run, review(run, "verdict", { verdict: "escalate", kind: "blocked" }), 2);
+		// The agent kept working instead of stopping to ask, then claimed completion and failed.
+		run = recordReview(run, review(run, "verdict", { verdict: "fail" }), 3);
+		expect(decideStop(run, true, STALL, 4).action).toBe("block");
+	});
+
 	it("never blocks a paused, stopped, or missing run", () => {
 		expect(decideStop(undefined, false, STALL, 1).action).toBe("allow");
 		expect(decideStop(pauseRun(freshRun(), "user", 2), false, STALL, 3).action).toBe("allow");

@@ -105,7 +105,8 @@ export function wasCancelled(review: ReviewRecord): boolean {
 
 /**
  * Record a finished review and apply its verdict: `pass` ends the run,
- * `escalate` lets the next stop through, and `fail` leaves the gate armed. A
+ * `escalate` lets the next stop through, and `fail` arms the gate, revoking an
+ * unused escalation. A
  * verdict on an older objective version is recorded as stale and applies
  * nothing. Cancelled reviews count toward neither the review budget nor the
  * error streak, and {@link MAX_REVIEW_ERRORS} errored reviews in a row pause an
@@ -132,8 +133,8 @@ export function recordReview(run: RefereeRun, review: ReviewRecord, now: number)
 		const { pauseReason: _reason, ...rest } = next;
 		return { ...rest, status: "passed", stopAllowed: false, idleStops: 0 };
 	}
-	if (entry.verdict === "escalate" && run.status === "active") return { ...next, stopAllowed: true };
-	return next;
+	// Each ruling replaces the last: only an escalation grants a stop, and a later fail revokes an unused one.
+	return { ...next, stopAllowed: entry.verdict === "escalate" && run.status === "active" };
 }
 
 /** Add referee spend that is not a review (status checks). */
