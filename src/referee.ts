@@ -92,7 +92,10 @@ async function openRefereeAgent(
 		sessionManager: SessionManager;
 		mode: "review" | "status";
 		customTools: CustomTool[];
-		/** Park the registry ref on dispose so `history://<agentId>` keeps resolving. */
+		/**
+		 * Park the registry ref on dispose: the Agent Hub keeps the transcript, and omp's roster
+		 * scan, which registers unclaimed transcripts as peers, leaves it alone.
+		 */
 		park: boolean;
 	},
 ): Promise<RefereeAgent> {
@@ -102,6 +105,22 @@ async function openRefereeAgent(
 		instructions: options.instructions,
 	});
 	const agentRegistry = AgentRegistry.global();
+	// createAgentSession registers a `sub` ref unless handed a parked ref to adopt. A `sub` is a peer:
+	// the agent's broadcasts, peer rosters, and kills reach it. An `advisor` ref is omp's read-only
+	// transcript, never a peer: broadcasts skip it and direct messages are refused.
+	const ref = agentRegistry.registerIfAvailable(
+		{
+			id: agentId,
+			displayName: setup.mode === "status" ? "Referee status" : "Referee",
+			kind: "advisor",
+			parentId: options.parentAgentId,
+			session: null,
+			sessionFile: setup.sessionManager.getSessionFile() ?? null,
+			status: "parked",
+		},
+		null,
+	);
+	if (!ref) throw new Error(`Failed to start the referee session: agent id ${agentId} is taken.`);
 	let session: AgentSession;
 	try {
 		const created = await createAgentSession({
@@ -136,11 +155,11 @@ async function openRefereeAgent(
 			promptTemplates: [],
 			slashCommands: [],
 			agentId,
-			agentDisplayName: setup.mode === "status" ? "Referee status" : "Referee",
 			agentName: "referee",
 			parentTaskPrefix: agentId,
 			parentAgentId: options.parentAgentId,
 			agentRegistry,
+			expectedAgentRef: ref,
 			localProtocolOptions: options.localProtocolOptions,
 			systemPrompt: defaultPrompt =>
 				defaultPrompt.length === 0
@@ -149,12 +168,12 @@ async function openRefereeAgent(
 		});
 		session = created.session;
 	} catch (error) {
+		agentRegistry.unregister(agentId, ref);
 		throw new Error(`Failed to start the referee session: ${errorText(error)}`, { cause: error });
 	}
-	// createAgentSession registers the referee as running; it runs only during its turns.
+	// createAgentSession marks the referee running; it runs only during its turns.
 	agentRegistry.setStatus(agentId, "idle");
-	// Keep the ref, so history:// still reads the transcript, but detach the live session: omp
-	// delivers agent messages to any registered live session, so the agent could steer its referee.
+	// Detach the live session too: omp's `ensureLive` hands an attached session to anyone asking by id.
 	agentRegistry.detachSession(agentId);
 
 	let tokens = 0;
