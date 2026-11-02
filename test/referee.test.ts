@@ -11,6 +11,7 @@ import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { IrcBus } from "@oh-my-pi/pi-coding-agent/irc/bus";
+import { executeSend } from "@oh-my-pi/pi-coding-agent/irc/messaging";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { removeWithRetries } from "@oh-my-pi/pi-utils";
 import {
@@ -196,7 +197,7 @@ describe("referee sessions", () => {
 		expect(JSON.stringify(contexts[0]?.messages)).toContain("I wrote alpha to a.txt.");
 
 		await referee.dispose();
-		// Parked, not unregistered: `history://<agentId>` keeps resolving after the run.
+		// Parked, not unregistered: the Agent Hub keeps listing the transcript after the run.
 		expect(AgentRegistry.global().get(referee.agentId)?.status).toBe("parked");
 		expect(await Bun.file(referee.sessionFile!).exists()).toBe(true);
 	});
@@ -208,6 +209,31 @@ describe("referee sessions", () => {
 		expect(receipt.outcome).toBe("failed");
 		// The message never woke the referee into an unsolicited turn.
 		expect(contexts).toHaveLength(0);
+		await referee.dispose();
+	});
+
+	it("stays out of other agents' broadcasts, between reviews and during one", async () => {
+		installProvider();
+		const referee = await reviewer("Referee");
+		const recipients = async () => {
+			const result = await executeSend(
+				{ registry: AgentRegistry.global(), senderId: "Main" },
+				{ to: "all", message: "Status?" },
+			);
+			return (result.details?.receipts ?? []).map(receipt => receipt.to);
+		};
+		expect(await recipients()).not.toContain(referee.agentId);
+		const started = Promise.withResolvers<void>();
+		replies.push(() => {
+			started.resolve();
+			return "hang";
+		});
+		const controller = new AbortController();
+		const pending = referee.review(request(), () => {}, controller.signal);
+		await started.promise;
+		expect(await recipients()).not.toContain(referee.agentId);
+		controller.abort();
+		await pending;
 		await referee.dispose();
 	});
 

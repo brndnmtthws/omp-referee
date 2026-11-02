@@ -42,8 +42,7 @@ Runs also work headless: `omp -p "/referee <objective>"` returns once the agent 
 
 Write the objective as the contract: the referee fails anything it cannot verify, and it neither narrows the objective nor adds to it. Checkable criteria ("`bun test` passes", "`bun run check` exits 0") make for fast, decisive reviews.
 
-- Referee transcript: `history://Referee` (`Referee-2` and so on when a session holds several)
-- Status check transcript, while the check runs: `history://RefereeStatus` (`RefereeStatus-2` and so on)
+- Referee transcript: `history://Referee` (`Referee-2` and so on when a session holds several); a `--no-session` run writes it under `~/.omp/agent/referee/` instead.
 
 ## How it works
 
